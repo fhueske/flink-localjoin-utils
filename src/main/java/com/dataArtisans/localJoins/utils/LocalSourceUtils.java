@@ -18,14 +18,11 @@
 
 package com.dataArtisans.localJoins.utils;
 
-import org.apache.flink.api.common.InvalidProgramException;
 import org.apache.flink.api.common.io.FileInputFormat;
 import org.apache.flink.api.common.io.ReplicatingInputFormat;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
-import org.apache.flink.api.common.typeutils.CompositeType;
 import org.apache.flink.api.java.ExecutionEnvironment;
 import org.apache.flink.api.java.operators.DataSource;
-import org.apache.flink.api.java.operators.Keys;
 import org.apache.flink.core.fs.FileInputSplit;
 
 public class LocalSourceUtils {
@@ -38,18 +35,18 @@ public class LocalSourceUtils {
 		return env.createInput(new ReplicatingInputFormat<T, FileInputSplit>(replicatedFormat), type).setParallelism(dop);
 	}
 
-	public static class StrictlyLocalFileSource<T> {
+	public static class StrictlyLocalFileDataSource<T> {
 
 		ExecutionEnvironment env;
 		int dop;
 		StrictlyLocalFileInputFormat<T> format;
 		TypeInformation<T> type;
 
-		public StrictlyLocalFileSource(ExecutionEnvironment env, FileInputFormat<T> format, TypeInformation<T> type) {
+		public StrictlyLocalFileDataSource(ExecutionEnvironment env, FileInputFormat<T> format, TypeInformation<T> type) {
 			this(env, env.getDegreeOfParallelism(), format, type);
 		}
 
-		public StrictlyLocalFileSource(ExecutionEnvironment env, int dop, FileInputFormat<T> format, TypeInformation<T> type) {
+		public StrictlyLocalFileDataSource(ExecutionEnvironment env, int dop, FileInputFormat<T> format, TypeInformation<T> type) {
 			this.env = env;
 			this.dop = dop;
 			this.format = new StrictlyLocalFileInputFormat<T>(format);
@@ -60,7 +57,7 @@ public class LocalSourceUtils {
 			this.format.addLocalFile(path, host);
 		}
 
-		public DataSource<T> getLocalFileDataSource() {
+		public DataSource<T> getStrictlyLocalFileDataSource() {
 			return env.createInput(format, type).setParallelism(dop);
 		}
 
@@ -74,8 +71,8 @@ public class LocalSourceUtils {
 		StrictlyLocalFileInputFormat<T2> format2;
 		TypeInformation<T1> type1;
 		TypeInformation<T2> type2;
-		int[] flatPartitionKeys1;
-		int[] flatPartitionKeys2;
+		String partitionKeys1;
+		String partitionKeys2;
 
 		public BinaryColocatedFileSources(ExecutionEnvironment env,
 										  FileInputFormat<T1> format1,
@@ -103,8 +100,8 @@ public class LocalSourceUtils {
 			this.format2 = new StrictlyLocalFileInputFormat(format2);
 			this.type1 = type1;
 			this.type2 = type2;
-			this.flatPartitionKeys1 = computeFlatPartitionKeys(partitionKey1, type1);
-			this.flatPartitionKeys2 = computeFlatPartitionKeys(partitionKey2, type2);
+			this.partitionKeys1 = partitionKey1;
+			this.partitionKeys2 = partitionKey2;
 		}
 
 		public void addColocatedFiles(String path1, String path2, String host) {
@@ -117,7 +114,9 @@ public class LocalSourceUtils {
 		}
 
 		public DataSource<T1> getFirstColocatedFileDataSource(ExecutionEnvironment env, int dop) {
-			return env.createInput(format1, type1).setParallelism(dop);
+			DataSource<T1> firstSource = env.createInput(format1, type1).setParallelism(dop);
+			firstSource.getSplitDataProperties().splitsPartitionedBy("partitioning_"+this.hashCode(), partitionKeys1);
+			return firstSource;
 		}
 
 		public DataSource<T2> getSecondColocatedFileDataSource(ExecutionEnvironment env) {
@@ -125,32 +124,9 @@ public class LocalSourceUtils {
 		}
 
 		public DataSource<T2> getSecondColocatedFileDataSource(ExecutionEnvironment env, int dop) {
-			return env.createInput(format2, type2).setParallelism(dop);
-		}
-
-		private int[] computeFlatPartitionKeys(String keyExp, TypeInformation type) {
-
-			int[] fields;
-
-			if(type instanceof CompositeType) {
-				// compute flat field positions for (nested) sorting fields
-				Keys.ExpressionKeys ek;
-				try {
-					ek = new Keys.ExpressionKeys(new String[]{keyExp}, type);
-				} catch(IllegalArgumentException iae) {
-					throw new InvalidProgramException("Invalid specification of field expression.", iae);
-				}
-				return ek.computeLogicalKeyPositions();
-			} else {
-				keyExp = keyExp.trim();
-				if (!(keyExp.equals("*") || keyExp.equals("_"))) {
-					throw new InvalidProgramException("Output sorting of non-composite types can only be defined on the full type. " +
-							"Use a field wildcard for that (\"*\" or \"_\")");
-				} else {
-					return new int[]{0};
-				}
-			}
-
+			DataSource<T2> secondSource = env.createInput(format2, type2).setParallelism(dop);
+			secondSource.getSplitDataProperties().splitsPartitionedBy("partitioning_"+this.hashCode(), partitionKeys2);
+			return secondSource;
 		}
 
 	}

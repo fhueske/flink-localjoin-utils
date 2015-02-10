@@ -44,7 +44,7 @@ public class StrictlyLocalFileInputFormat<T> extends FileInputFormat<T> implemen
 	public void addLocalFile(String filePath, String hostName) {
 
 		FileInputSplit split = new FileInputSplit(
-				this.splits.size(), new Path(filePath), 0, -1, new String[]{hostName} );
+				this.splits.size(), new Path(filePath), 0, FileInputFormat.READ_WHOLE_SPLIT_FLAG, new String[]{hostName} );
 
 		this.splits.add(split);
 	}
